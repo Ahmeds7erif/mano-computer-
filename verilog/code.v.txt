@@ -1,0 +1,260 @@
+module ManoComputer(
+    input wire clk,
+    input wire reset,
+    input wire [11:0] input_data,
+    output wire [11:0] output_data,
+    output wire [11:0] address_bus,
+    output wire [11:0] data_bus,
+    output wire [15:0] control_signals
+);
+
+    // Internal wires
+    wire [11:0] pc_out, ar_out, dr_out, ac_out, ir_out;
+    wire [2:0] opcode;
+    wire [11:0] memory_out, alu_result;
+    wire mem_read, mem_write;
+    
+    // Extract opcode from instruction
+    assign opcode = ir_out[11:9];
+
+    // Instantiate components
+    ProgramCounter PC(
+        .clk(clk),
+        .reset(reset),
+        .load(control_signals[0]),
+        .increment(control_signals[1]),
+        .data_in(data_bus),
+        .data_out(pc_out)
+    );
+
+    MemoryUnit MEM(
+        .clk(clk),
+        .address(address_bus),
+        .data_in(data_bus),
+        .data_out(memory_out),
+        .read_enable(mem_read),
+        .write_enable(mem_write)
+    );
+
+    Accumulator AC(
+        .clk(clk),
+        .reset(reset),
+        .load(control_signals[2]),
+        .data_in(data_bus),
+        .data_out(ac_out)
+    );
+
+    InstructionRegister IR(
+        .clk(clk),
+        .reset(reset),
+        .load(control_signals[3]),
+        .data_in(memory_out),
+        .data_out(ir_out)
+    );
+
+    AddressRegister AR(
+        .clk(clk),
+        .reset(reset),
+        .load(control_signals[4]),
+        .data_in(data_bus),
+        .data_out(ar_out)
+    );
+
+    DataRegister DR(
+        .clk(clk),
+        .reset(reset),
+        .load(control_signals[5]),
+        .data_in(memory_out),
+        .data_out(dr_out)
+    );
+
+    ALU ALUnit(
+        .a(ac_out),
+        .b(dr_out),
+        .opcode(opcode),
+        .result(alu_result),
+        .zero_flag(control_signals[6])
+    );
+
+    ControlUnit CU(
+        .clk(clk),
+        .reset(reset),
+        .opcode(opcode),
+        .flags(control_signals[6]),
+        .control_signals(control_signals)
+    );
+
+    // Bus controller logic
+    assign address_bus = (control_signals[7]) ? pc_out : ar_out;
+    assign data_bus = (control_signals[8]) ? dr_out :
+                      (control_signals[9]) ? ac_out :
+                      (control_signals[10]) ? input_data :
+                      (control_signals[14]) ? alu_result : 12'bz;
+
+    assign output_data = (control_signals[11]) ? ac_out : 12'bz;
+    assign mem_read  = control_signals[12];
+    assign mem_write = control_signals[13];
+endmodule
+module ProgramCounter(
+    input wire clk,
+    input wire reset,
+    input wire load,
+    input wire increment,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= 12'b0;
+        else if (load)
+            data_out <= data_in;
+        else if (increment)
+            data_out <= data_out + 1;
+    end
+endmodule
+module MemoryUnit(
+    input wire clk,
+    input wire [11:0] address,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out,
+    input wire read_enable,
+    input wire write_enable
+);
+    reg [11:0] mem [0:4095]; // 4K memory
+
+    always @(posedge clk) begin
+        if (write_enable)
+            mem[address] <= data_in;
+        if (read_enable)
+            data_out <= mem[address];
+    end
+endmodule
+module Accumulator(
+    input wire clk,
+    input wire reset,
+    input wire load,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= 12'b0;
+        else if (load)
+            data_out <= data_in;
+    end
+endmodule
+module InstructionRegister(
+    input wire clk,
+    input wire reset,
+    input wire load,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= 12'b0;
+        else if (load)
+            data_out <= data_in;
+    end
+endmodule
+module AddressRegister(
+    input wire clk,
+    input wire reset,
+    input wire load,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= 12'b0;
+        else if (load)
+            data_out <= data_in;
+    end
+endmodule
+module DataRegister(
+    input wire clk,
+    input wire reset,
+    input wire load,
+    input wire [11:0] data_in,
+    output reg [11:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= 12'b0;
+        else if (load)
+            data_out <= data_in;
+    end
+endmodule
+module ALU(
+    input wire [11:0] a,
+    input wire [11:0] b,
+    input wire [2:0] opcode,
+    output reg [11:0] result,
+    output reg zero_flag
+);
+    always @(*) begin
+        case(opcode)
+            3'b000: result = a + b;             // ADD
+            3'b001: result = a & b;             // AND
+            3'b010: result = a | b;             // OR
+            3'b011: result = a ^ b;             // XOR
+            3'b100: result = ~a;                // NOT
+            3'b101: result = a << 1;            // SHL
+            3'b110: result = a >> 1;            // SHR
+            3'b111: result = (a == b) ? 12'b1 : 12'b0;  // CMP
+            default: result = 12'b0;
+        endcase
+        zero_flag = (result == 12'b0);
+    end
+endmodule
+module ControlUnit(
+    input wire clk,
+    input wire reset,
+    input wire [2:0] opcode,
+    input wire flags,
+    output reg [15:0] control_signals
+);
+    reg [3:0] state, next_state;
+
+    // States
+    parameter FETCH = 0, DECODE = 1, EXECUTE = 2;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            state <= FETCH;
+        else
+            state <= next_state;
+    end
+
+    always @(*) begin
+        control_signals = 16'b0;
+        case(state)
+            FETCH: begin
+                // AR <- PC, Read Mem -> IR
+                control_signals = 16'b0000000001001001;
+                next_state = DECODE;
+            end
+            DECODE: begin
+                // No action, just decode
+                next_state = EXECUTE;
+            end
+            EXECUTE: begin
+                case(opcode)
+                    3'b000: begin // ADD
+                        control_signals = 16'b0010001000100010; // AR <- IR[addr], DR <- MEM, ALU, AC <- Result
+                    end
+                    3'b001: begin // AND
+                        control_signals = 16'b0010001000100010;
+                    end
+                    3'b111: begin // CMP
+                        control_signals = 16'b0010001000000010; // Compare using ALU, no store
+                    end
+                    default: begin
+                        control_signals = 16'b0;
+                    end
+                endcase
+                next_state = FETCH;
+            end
+        endcase
+    end
+endmodule
